@@ -11,6 +11,8 @@ add_executable(bstream_tests
     test_memory_stream.cc
     test_stream_copier.cc
     test_tee_stream.cc
+    test_bit_writer.cc
+    test_bit_stream_writer.cc
 )
 
 target_link_libraries(bstream_tests PRIVATE

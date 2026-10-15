@@ -13,3 +13,5 @@
 #include <bstream/memory_stream.hh>
 #include <bstream/stream_copier.hh>
 #include <bstream/tee_stream.hh>
+#include <bstream/bit_writer.hh>
+#include <bstream/bit_stream_writer.hh>
