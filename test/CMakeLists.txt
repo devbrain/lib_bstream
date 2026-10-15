@@ -6,6 +6,7 @@ add_executable(bstream_tests
     test_bit_stream_reader.cc
     test_pfr.cc
     test_writer.cc
+    test_byte_order.cc
 )
 
 target_link_libraries(bstream_tests PRIVATE

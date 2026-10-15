@@ -1,6 +1,7 @@
 #pragma once
 
 #include <bstream/types.hh>
+#include <bstream/byte_order.hh>
 #include <bstream/error.hh>
 #include <bstream/pfr_adapter.hh>
 #include <bstream/span_reader.hh>
