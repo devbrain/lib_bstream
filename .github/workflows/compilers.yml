@@ -36,10 +36,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Configure
+        # Keep platform defaults such as MSVC/clang-cl's /EHsc exception support.
         run: >-
           cmake -S . -B build ${{ matrix.toolchain.configure }}
           -DCMAKE_BUILD_TYPE=Release
-          -DCMAKE_CXX_FLAGS="${{ matrix.toolchain.flags }}"
+          -DCMAKE_CXX_FLAGS_INIT="${{ matrix.toolchain.flags }}"
           -DCMAKE_POLICY_VERSION_MINIMUM=3.5
           -DNEUTRINO_BSTREAM_BUILD_TESTS=ON
           -DNEUTRINO_WARNINGS_AS_ERRORS=ON
