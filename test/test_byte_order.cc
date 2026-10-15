@@ -1,12 +1,70 @@
 #include <doctest/doctest.h>
 #include <bstream/bstream.hh>
 
+#include <array>
+#include <bit>
+#include <cfloat>
+#include <type_traits>
+
+namespace {
+    template<typename T>
+    concept endian_convertible = requires(T value) {
+        bstream::byteswap(value);
+        bstream::flip_bytes(value);
+        bstream::from_endian(value, bstream::endian::big);
+        bstream::to_endian(value, bstream::endian::big);
+        bstream::convert_endian(value, bstream::endian::little, bstream::endian::big);
+        bstream::byte_order::flip_bytes(value);
+    };
+}
+
+static_assert(endian_convertible<float>);
+static_assert(endian_convertible<double>);
+static_assert(!bstream::scalar_type<void>);
+#if LDBL_MANT_DIG == 64 || LDBL_MANT_DIG == 113
+// x87 extended and binary128 cannot use the binary32/binary64 value API.
+static_assert(!bstream::scalar_type<long double>);
+static_assert(!endian_convertible<long double>);
+#elif LDBL_MANT_DIG == 53 && LDBL_MAX_EXP == 1024
+// MSVC represents long double as binary64, which remains supported.
+static_assert(bstream::scalar_type<long double>);
+static_assert(endian_convertible<long double>);
+#endif
+
 enum class TestColor : uint16_t {
     Red = 0x1234,
     Green = 0x5678
 };
 
+static_assert(bstream::byteswap(uint16_t{0x1234}) == uint16_t{0x3412});
+static_assert(bstream::byteswap(uint32_t{0x12345678}) == uint32_t{0x78563412});
+static_assert(bstream::byteswap(uint64_t{0x0123456789abcdefULL}) == uint64_t{0xefcdab8967452301ULL});
+static_assert(bstream::byteswap(int16_t{-2}) == int16_t{-257});
+static_assert(bstream::byteswap(int32_t{-2}) == int32_t{-16777217});
+static_assert(bstream::byteswap(int64_t{-2}) == int64_t{-72057594037927937LL});
+static_assert(bstream::byteswap(TestColor::Red) == static_cast<TestColor>(0x3412));
+static_assert(std::bit_cast<uint32_t>(bstream::byteswap(std::bit_cast<float>(uint32_t{0x12345678}))) == 0x78563412U);
+static_assert(std::bit_cast<uint64_t>(bstream::byteswap(std::bit_cast<double>(uint64_t{0x0123456789abcdefULL}))) ==
+              0xefcdab8967452301ULL);
+
 TEST_SUITE("byte_order") {
+
+    TEST_CASE_TEMPLATE("byteswap reverses object bytes across integer and floating types", T,
+                       uint16_t, int16_t, uint32_t, int32_t, uint64_t, int64_t,
+                       long, unsigned long, wchar_t, char16_t, char32_t, float, double) {
+        // High bits exercise signed values; byte-by-byte expectations do not
+        // depend on the host byte order or the platform's width of long.
+        std::array<uint8_t, sizeof(T)> original{};
+        for (std::size_t i = 0; i < original.size(); ++i) {
+            original[i] = static_cast<uint8_t>(0x81U + i);
+        }
+        const T value = std::bit_cast<T>(original);
+        const auto swapped = std::bit_cast<decltype(original)>(bstream::byteswap(value));
+        for (std::size_t i = 0; i < original.size(); ++i) {
+            CHECK(swapped[i] == original[original.size() - 1 - i]);
+        }
+        CHECK(std::bit_cast<decltype(original)>(bstream::byteswap(bstream::byteswap(value))) == original);
+    }
 
     TEST_CASE("flip_bytes scalar types") {
         CHECK(bstream::flip_bytes<uint16_t>(0x1234) == 0x3412);

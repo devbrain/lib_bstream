@@ -1,10 +1,21 @@
+/**
+ * @file pfr_adapter.hh
+ * @brief Optional aggregate reflection detection and internal serialization support.
+ * @details BSTREAM_HAS_PFR is defined when Boost.PFR is available and not disabled.
+ * See @ref serialization for supported public usage; detail helpers are not API.
+ */
+
 #pragma once
 
+#include <bstream/detail/platform.hh>
+
 #include <bstream/types.hh>
+#include <type_traits>
 #include <utility>
 
-#if __has_include(<boost/pfr/core.hpp>)
+#if (!defined(BSTREAM_WITH_BOOST_PFR) || BSTREAM_WITH_BOOST_PFR) && __has_include(<boost/pfr/core.hpp>)
 #include <boost/pfr/core.hpp>
+/** @brief Defined when automatic aggregate reflection is enabled and available. */
 #define BSTREAM_HAS_PFR 1
 #endif
 
@@ -26,7 +37,8 @@ namespace bstream::detail {
 
     template<typename Reader, typename T, std::size_t... I>
     constexpr T read_aggregate_impl(Reader& reader, std::index_sequence<I...>) {
-        return T{reader.template read<boost::pfr::tuple_element_t<I, T>>()...};
+        // Decode into mutable values, then initialize even const-qualified fields.
+        return T{reader.template read<std::remove_cv_t<boost::pfr::tuple_element_t<I, T>>>()...};
     }
 
     template<typename Reader, typename T>
@@ -47,6 +59,13 @@ namespace bstream::detail {
 #else
     template<typename T>
     inline constexpr bool is_pfr_reflectable_v = false;
+
+    // Qualified lookup still occurs in discarded if-constexpr branches.
+    template<typename Reader, typename T>
+    constexpr T read_aggregate(Reader&) = delete;
+
+    template<typename Writer, typename T>
+    constexpr void write_aggregate(Writer&, const T&) = delete;
 #endif
 
 } // namespace bstream::detail

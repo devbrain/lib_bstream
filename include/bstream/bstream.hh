@@ -1,4 +1,12 @@
+/**
+ * @file bstream.hh
+ * @brief Umbrella header exposing the complete public bstream API.
+ * @see setup, serialization, bit_guide, stream_adapters
+ */
+
 #pragma once
+
+#include <bstream/detail/platform.hh>
 
 #include <bstream/types.hh>
 #include <bstream/byte_order.hh>

@@ -1,7 +1,50 @@
 #include <doctest/doctest.h>
 #include <bstream/bstream.hh>
+#include <utility>
 
 TEST_SUITE("bit_writer") {
+
+    TEST_CASE("Moving span writers preserves output and leaves reusable empty sources") {
+        for (const auto order : {bstream::bit_order::msb_first, bstream::bit_order::lsb_first}) {
+            uint8_t bytes[4]{};
+            bstream::bit_writer source(std::span<uint8_t>{bytes}, order);
+            source.write_bits(0xab, 8);
+            source.write_bits(5, 3);
+
+            bstream::bit_writer moved(std::move(source));
+            CHECK(source.data().empty());
+            CHECK(source.data().data() == nullptr);
+            CHECK(source.bits_in_buffer() == 0);
+            CHECK(source.total_bits_written() == 0);
+            CHECK_NOTHROW(source.flush());
+            REQUIRE(moved.data().size() == 1);
+            CHECK(moved.data()[0] == 0xab);
+            CHECK(moved.total_bits_written() == 11);
+            moved.write_bits(0x1f, 5);
+            CHECK(bytes[1] == (order == bstream::bit_order::msb_first ? 0xbf : 0xfd));
+
+            uint8_t old_bytes[4]{};
+            bstream::bit_writer assigned(std::span<uint8_t>{old_bytes}, order);
+            assigned.write_bits(3, 2);
+            assigned = std::move(moved);
+            CHECK(old_bytes[0] == (order == bstream::bit_order::msb_first ? 0xc0 : 0x03));
+            CHECK(moved.data().empty());
+            CHECK(moved.data().data() == nullptr);
+            CHECK(moved.bits_in_buffer() == 0);
+            CHECK(moved.total_bits_written() == 0);
+            CHECK_NOTHROW(moved.flush());
+            REQUIRE(assigned.data().size() == 2);
+            CHECK(assigned.data().data() == bytes);
+            CHECK(assigned.total_bits_written() == 16);
+            assigned.write_bits(0x42, 8);
+            CHECK(bytes[2] == 0x42);
+
+            source = bstream::bit_writer(std::span<uint8_t>{old_bytes}, order);
+            source.write_bits(0x55, 8);
+            REQUIRE(source.data().size() == 1);
+            CHECK(source.data()[0] == 0x55);
+        }
+    }
 
     TEST_CASE("bit_writer msb_first round-trip with bit_reader") {
         bstream::bit_writer writer(bstream::bit_order::msb_first);

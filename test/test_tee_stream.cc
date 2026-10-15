@@ -1,6 +1,36 @@
 #include <doctest/doctest.h>
 #include <bstream/bstream.hh>
 #include <sstream>
+#include <type_traits>
+
+// Copying or "moving" through a copy must not retain pointers into another
+// tee buffer's internal storage after that object is destroyed.
+static_assert(!std::is_copy_constructible_v<bstream::tee_stream_buf>);
+static_assert(!std::is_copy_assignable_v<bstream::tee_stream_buf>);
+static_assert(!std::is_move_constructible_v<bstream::tee_stream_buf>);
+static_assert(!std::is_move_assignable_v<bstream::tee_stream_buf>);
+
+namespace {
+    class failing_sink : public std::streambuf {
+    public:
+        bool reject_writes = true;
+        bool reject_flush = false;
+        std::string bytes;
+
+    protected:
+        int_type overflow(int_type c) override {
+            if (reject_writes) return traits_type::eof();
+            if (c != traits_type::eof()) bytes.push_back(traits_type::to_char_type(c));
+            return traits_type::not_eof(c);
+        }
+        std::streamsize xsputn(const char* s, std::streamsize count) override {
+            const auto accepted = reject_writes ? count / 2 : count;
+            bytes.append(s, static_cast<std::size_t>(accepted));
+            return accepted;
+        }
+        int sync() override { return reject_flush ? -1 : 0; }
+    };
+}
 
 TEST_SUITE("tee_stream") {
 
@@ -66,4 +96,57 @@ TEST_SUITE("tee_stream") {
         // tee_log should contain the read binary data
         CHECK(tee_log.str() == original_binary);
     }
+}
+
+TEST_CASE("Tee output propagates destination put write and flush failures") {
+    failing_sink buffer;
+    std::ostream failed(&buffer);
+    std::ostringstream good;
+    bstream::tee_output_stream tee(failed);
+    tee.add_stream(good);
+
+    SUBCASE("single character") {
+        tee.put('x');
+        CHECK(tee.bad());
+        CHECK(failed.bad());
+        CHECK(good.str() == "x");
+    }
+    SUBCASE("partial bulk write through binary writer") {
+        bstream::stream_writer writer(tee);
+        CHECK_THROWS_AS(writer.write<uint32_t>(0x12345678), bstream::bstream_error);
+        CHECK(tee.bad());
+        CHECK(buffer.bytes.size() == 2);
+        CHECK(good.str().size() == 4);
+    }
+    SUBCASE("flush failure after successful writes") {
+        buffer.reject_writes = false;
+        buffer.reject_flush = true;
+        bstream::stream_writer writer(tee);
+        CHECK_NOTHROW(writer.write<uint32_t>(0x12345678));
+        CHECK_THROWS_AS(writer.flush(), bstream::bstream_error);
+        CHECK(tee.bad());
+        CHECK(buffer.bytes == good.str());
+    }
+    SUBCASE("tee exception mask") {
+        tee.exceptions(std::ios::badbit);
+        CHECK_THROWS_AS(tee.put('x'), std::ios_base::failure);
+    }
+    SUBCASE("destination exception mask") {
+        failed.exceptions(std::ios::badbit);
+        tee.write("abcd", 4);
+        CHECK(tee.bad());
+    }
+}
+
+TEST_CASE("Tee input reports failed mirror writes") {
+    std::istringstream input("payload");
+    failing_sink buffer;
+    std::ostream failed(&buffer);
+    bstream::tee_input_stream tee(input);
+    tee.add_stream(failed);
+    char c = 0;
+    tee.get(c);
+    CHECK(tee.bad());
+    CHECK(failed.bad());
+    CHECK(tee.gcount() == 0);
 }

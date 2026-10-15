@@ -1,0 +1,26 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+if(@BSTREAM_WITH_FAILSAFE@ AND NOT TARGET neutrino::failsafe)
+    find_dependency(failsafe CONFIG)
+endif()
+if(@BSTREAM_WITH_BOOST_PFR@ AND NOT TARGET Boost::pfr)
+    find_dependency(Boost 1.83 CONFIG COMPONENTS pfr)
+endif()
+
+if(NOT TARGET neutrino::bstream)
+    include("${CMAKE_CURRENT_LIST_DIR}/bstreamTargets.cmake")
+    # Attach consumer dependency targets here rather than exporting FetchContent
+    # targets or absolute paths from the producer's build tree.
+    if(@BSTREAM_WITH_FAILSAFE@)
+        set_property(TARGET neutrino::bstream APPEND PROPERTY
+            INTERFACE_LINK_LIBRARIES neutrino::failsafe)
+    endif()
+    if(@BSTREAM_WITH_BOOST_PFR@)
+        set_property(TARGET neutrino::bstream APPEND PROPERTY
+            INTERFACE_LINK_LIBRARIES Boost::pfr)
+    endif()
+endif()
+
+check_required_components(bstream)

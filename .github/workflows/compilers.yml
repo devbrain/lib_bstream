@@ -1,0 +1,75 @@
+name: Compiler compatibility
+
+on: [push, pull_request, workflow_dispatch]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.toolchain.name }} / optional dependencies ${{ matrix.dependencies }}
+    runs-on: ${{ matrix.toolchain.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        dependencies: ["ON", "OFF"]
+        toolchain:
+          - name: GCC
+            os: ubuntu-24.04
+            configure: -DCMAKE_CXX_COMPILER=g++
+            flags: ""
+          - name: Clang
+            os: ubuntu-24.04
+            configure: -DCMAKE_CXX_COMPILER=clang++
+            flags: -Weverything -Werror -Wno-c++98-compat -Wno-c++98-compat-pedantic -Wno-padded -Wno-weak-vtables -Wno-unsafe-buffer-usage
+          - name: MSVC
+            os: windows-2022
+            configure: -G "Visual Studio 17 2022" -A x64
+            flags: ""
+          - name: clang-cl
+            os: windows-2022
+            configure: -G "Visual Studio 17 2022" -A x64 -T ClangCL
+            flags: ""
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: >-
+          cmake -S . -B build ${{ matrix.toolchain.configure }}
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_CXX_FLAGS="${{ matrix.toolchain.flags }}"
+          -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+          -DNEUTRINO_BSTREAM_BUILD_TESTS=ON
+          -DNEUTRINO_WARNINGS_AS_ERRORS=ON
+          -DBSTREAM_WITH_BOOST_PFR=${{ matrix.dependencies }}
+          -DBSTREAM_WITH_FAILSAFE=${{ matrix.dependencies }}
+      - name: Build tests and standalone headers
+        run: cmake --build build --config Release --parallel 2
+      - name: Test
+        run: ctest --test-dir build --build-config Release --output-on-failure
+
+  documentation:
+    name: Doxygen reference
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Doxygen
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes doxygen
+      - name: Configure
+        run: >-
+          cmake -S . -B build-docs
+          -DNEUTRINO_BSTREAM_BUILD_DOCS=ON
+          -DNEUTRINO_BSTREAM_BUILD_TESTS=OFF
+          -DNEUTRINO_BSTREAM_BUILD_EXAMPLES=OFF
+          -DBSTREAM_WITH_BOOST_PFR=OFF
+          -DBSTREAM_WITH_FAILSAFE=OFF
+      - name: Generate documentation with warnings as errors
+        run: cmake --build build-docs --target bstream_docs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bstream-documentation
+          path: build-docs/docs/reference/

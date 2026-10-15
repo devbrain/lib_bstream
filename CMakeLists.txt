@@ -67,28 +67,80 @@ endif()
 # Main Target: bstream (Header-only / Interface library)
 # ============================================================================
 
+include(GNUInstallDirs)
+
 add_library(bstream INTERFACE)
 add_library(neutrino::bstream ALIAS bstream)
 
 target_include_directories(bstream INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:include>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 
 target_compile_features(bstream INTERFACE cxx_std_20)
+target_compile_definitions(bstream INTERFACE
+    BSTREAM_WITH_BOOST_PFR=$<BOOL:${BSTREAM_WITH_BOOST_PFR}>
+)
 
-if(BSTREAM_WITH_FAILSAFE AND TARGET failsafe)
-    target_link_libraries(bstream INTERFACE failsafe)
+if(BSTREAM_WITH_FAILSAFE)
+    if(TARGET neutrino::failsafe)
+        target_link_libraries(bstream INTERFACE $<BUILD_INTERFACE:neutrino::failsafe>)
+    else()
+        target_link_libraries(bstream INTERFACE $<BUILD_INTERFACE:failsafe>)
+    endif()
 endif()
 
 if(BSTREAM_WITH_BOOST_PFR)
     if(TARGET Boost::pfr)
-        target_link_libraries(bstream INTERFACE Boost::pfr)
+        target_link_libraries(bstream INTERFACE $<BUILD_INTERFACE:Boost::pfr>)
     elseif(DEFINED boost_pfr_SOURCE_DIR)
         target_include_directories(bstream INTERFACE
             $<BUILD_INTERFACE:${boost_pfr_SOURCE_DIR}/include>
         )
     endif()
+endif()
+
+# ============================================================================
+# Installation
+# ============================================================================
+
+if(NEUTRINO_BSTREAM_INSTALL)
+    include(CMakePackageConfigHelpers)
+    set(_bstream_package_dir "${CMAKE_INSTALL_LIBDIR}/cmake/bstream")
+
+    install(DIRECTORY include/bstream
+        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
+        FILES_MATCHING PATTERN "*.hh"
+    )
+    install(TARGETS bstream EXPORT bstreamTargets)
+    install(EXPORT bstreamTargets
+        NAMESPACE neutrino::
+        DESTINATION "${_bstream_package_dir}"
+    )
+    configure_package_config_file(
+        cmake/bstreamConfig.cmake.in
+        "${CMAKE_CURRENT_BINARY_DIR}/bstreamConfig.cmake"
+        INSTALL_DESTINATION "${_bstream_package_dir}"
+    )
+    write_basic_package_version_file(
+        "${CMAKE_CURRENT_BINARY_DIR}/bstreamConfigVersion.cmake"
+        VERSION "${PROJECT_VERSION}"
+        COMPATIBILITY SameMajorVersion
+        ARCH_INDEPENDENT
+    )
+    install(FILES
+        "${CMAKE_CURRENT_BINARY_DIR}/bstreamConfig.cmake"
+        "${CMAKE_CURRENT_BINARY_DIR}/bstreamConfigVersion.cmake"
+        DESTINATION "${_bstream_package_dir}"
+    )
+endif()
+
+# ============================================================================
+# Documentation and Examples
+# ============================================================================
+
+if(NEUTRINO_BSTREAM_BUILD_DOCS OR NEUTRINO_BSTREAM_BUILD_EXAMPLES OR NEUTRINO_BSTREAM_BUILD_TESTS)
+    add_subdirectory(docs)
 endif()
 
 # ============================================================================

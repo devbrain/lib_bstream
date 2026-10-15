@@ -1,0 +1,67 @@
+cmake_minimum_required(VERSION 3.20)
+
+function(run_checked)
+    execute_process(COMMAND ${ARGV} RESULT_VARIABLE result
+        OUTPUT_VARIABLE output ERROR_VARIABLE error)
+    if(NOT result EQUAL 0)
+        message(FATAL_ERROR "Command failed: ${ARGV}\n${output}\n${error}")
+    endif()
+endfunction()
+
+set(test_root "@CMAKE_CURRENT_BINARY_DIR@/install-smoke")
+file(REMOVE_RECURSE "${test_root}")
+set(generator_args -G "@CMAKE_GENERATOR@")
+if(NOT "@CMAKE_GENERATOR_PLATFORM@" STREQUAL "")
+    list(APPEND generator_args -A "@CMAKE_GENERATOR_PLATFORM@")
+endif()
+if(NOT "@CMAKE_GENERATOR_TOOLSET@" STREQUAL "")
+    list(APPEND generator_args -T "@CMAKE_GENERATOR_TOOLSET@")
+endif()
+set(compiler_args
+    "-DCMAKE_CXX_COMPILER=@CMAKE_CXX_COMPILER@"
+    "-DCMAKE_CXX_FLAGS=@CMAKE_CXX_FLAGS@"
+    "-DCMAKE_BUILD_TYPE=@CMAKE_BUILD_TYPE@")
+if(NOT "@CMAKE_TOOLCHAIN_FILE@" STREQUAL "")
+    list(APPEND compiler_args "-DCMAKE_TOOLCHAIN_FILE=@CMAKE_TOOLCHAIN_FILE@")
+endif()
+set(config_args)
+set(ctest_config_args)
+if(NOT "${TEST_CONFIG}" STREQUAL "")
+    list(APPEND config_args --config "${TEST_CONFIG}")
+    list(APPEND ctest_config_args --build-config "${TEST_CONFIG}")
+endif()
+
+# A dependency-free producer makes this check self-contained and exercises
+# nondefault install directories without changing the enclosing build's options.
+run_checked("@CMAKE_COMMAND@" -S "@PROJECT_SOURCE_DIR@" -B "${test_root}/producer"
+    ${generator_args} ${compiler_args}
+    "-DNEUTRINO_CMAKE_DIR=@NEUTRINO_CMAKE_DIR@"
+    -DNEUTRINO_BSTREAM_BUILD_TESTS=OFF -DNEUTRINO_BSTREAM_BUILD_EXAMPLES=OFF
+    -DNEUTRINO_BSTREAM_BUILD_DOCS=OFF -DNEUTRINO_BSTREAM_INSTALL=ON
+    -DBSTREAM_WITH_FAILSAFE=OFF -DBSTREAM_WITH_BOOST_PFR=OFF
+    "-DCMAKE_INSTALL_PREFIX=${test_root}/original"
+    -DCMAKE_INSTALL_INCLUDEDIR=headers -DCMAKE_INSTALL_LIBDIR=lib/custom)
+run_checked("@CMAKE_COMMAND@" --install "${test_root}/producer" ${config_args})
+file(RENAME "${test_root}/original" "${test_root}/relocated")
+
+set(package_dir "${test_root}/relocated/lib/custom/cmake/bstream")
+if(NOT EXISTS "${test_root}/relocated/headers/bstream/detail/bit_read_buffer.hh")
+    message(FATAL_ERROR "Internal headers were not installed")
+endif()
+file(GLOB package_files "${package_dir}/*.cmake")
+foreach(package_file IN LISTS package_files)
+    file(READ "${package_file}" contents)
+    foreach(forbidden "@PROJECT_SOURCE_DIR@" "${test_root}/producer" "${test_root}/original")
+        string(FIND "${contents}" "${forbidden}" position)
+        if(NOT position EQUAL -1)
+            message(FATAL_ERROR "Non-relocatable path in ${package_file}: ${forbidden}")
+        endif()
+    endforeach()
+endforeach()
+
+run_checked("@CMAKE_COMMAND@" -S "@CMAKE_CURRENT_SOURCE_DIR@/install_consumer"
+    -B "${test_root}/consumer" ${generator_args} ${compiler_args}
+    "-Dbstream_DIR=${package_dir}" "-DEXPECTED_VERSION=@PROJECT_VERSION@")
+run_checked("@CMAKE_COMMAND@" --build "${test_root}/consumer" ${config_args})
+run_checked("@CMAKE_CTEST_COMMAND@" --test-dir "${test_root}/consumer"
+    ${ctest_config_args} --output-on-failure)

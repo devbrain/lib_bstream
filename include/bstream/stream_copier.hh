@@ -1,10 +1,19 @@
+/**
+ * @file stream_copier.hh
+ * @brief Buffered and unbuffered stream transfer helpers.
+ * @ingroup adapters
+ */
+
 #pragma once
+
+#include <bstream/detail/platform.hh>
 
 #include <bstream/error.hh>
 
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <istream>
 #include <ostream>
 #include <string>
@@ -12,9 +21,32 @@
 
 namespace bstream {
 
+    /**
+     * @brief Stateless helpers that transfer bytes from the current input position.
+     * @ingroup adapters
+     *
+     * Buffered operations use an 8192-byte stack buffer, or allocate a larger
+     * scratch buffer when requested. A zero chunk copies zero bytes. Destinations
+     * are appended to and are not flushed. Ordinary input errors stop copying;
+     * inspect input state to distinguish errors from EOF. Stream exception masks
+     * and allocation exceptions still apply. See @ref stream_adapters.
+     * @snippet usage.cc tee_input
+     */
     struct stream_copier {
+        /**
+         * @brief Default stack scratch-buffer capacity in bytes.
+         */
         static constexpr std::size_t default_chunk_size = 8192;
 
+        /**
+         * @brief Copy buffered chunks until input ends or fails.
+         * @throws bstream_error If an attempted output write fails.
+         * @note Does not flush output; stream exception masks and allocation exceptions still apply.
+         * @param in Input stream, starting at its current position.
+         * @param out Destination to append bytes to; existing contents are preserved.
+         * @param chunk_size Scratch-buffer size in bytes; zero copies nothing.
+         * @return The number of bytes successfully transferred.
+         */
         static std::streamsize copy(
             std::istream& in,
             std::ostream& out,
@@ -49,6 +81,14 @@ namespace bstream {
             return total;
         }
 
+        /**
+         * @brief Copy buffered chunks until input ends or fails. Append to the string without clearing it.
+         * @note Does not flush output; stream exception masks and allocation exceptions still apply.
+         * @param in Input stream, starting at its current position.
+         * @param out Destination to append bytes to; existing contents are preserved.
+         * @param chunk_size Scratch-buffer size in bytes; zero copies nothing.
+         * @return The number of bytes successfully transferred.
+         */
         static std::streamsize copy_to_string(
             std::istream& in,
             std::string& out,
@@ -80,6 +120,15 @@ namespace bstream {
             return total;
         }
 
+        /**
+         * @brief Copy buffered chunks until input ends or fails. Append to the byte vector without clearing it.
+         * @note Does not flush output; stream exception masks and allocation exceptions still apply.
+         * @tparam ByteT One-byte destination element type with a valid byte representation.
+         * @param in Input stream, starting at its current position.
+         * @param out Destination to append bytes to; existing contents are preserved.
+         * @param chunk_size Scratch-buffer size in bytes; zero copies nothing.
+         * @return The number of bytes successfully transferred.
+         */
         template<typename ByteT = uint8_t>
             requires (sizeof(ByteT) == 1)
         static std::streamsize copy_to_vector(
@@ -114,6 +163,13 @@ namespace bstream {
             return total;
         }
 
+        /**
+         * @brief Copy one character at a time until input or output fails.
+         * @note Does not flush output; stream exception masks and allocation exceptions still apply.
+         * @param in Input stream, starting at its current position.
+         * @param out Destination to append bytes to; existing contents are preserved.
+         * @return The number of bytes successfully transferred.
+         */
         static std::streamsize copy_unbuffered(std::istream& in, std::ostream& out) {
             char c = 0;
             std::streamsize total = 0;
@@ -124,10 +180,28 @@ namespace bstream {
         }
 
         // BSW drop-in compatibility
+        /**
+         * @brief Copy buffered chunks until input ends or fails.
+         * @throws bstream_error If an attempted output write fails.
+         * @see copy
+         * @note Does not flush output; stream exception masks and allocation exceptions still apply.
+         * @param in Input stream, starting at its current position.
+         * @param out Destination to append bytes to; existing contents are preserved.
+         * @param bufferSize Scratch-buffer size in bytes; zero copies nothing.
+         * @return The number of bytes successfully transferred.
+         */
         static std::streamsize copy_stream(std::istream& in, std::ostream& out, std::size_t bufferSize = default_chunk_size) {
             return copy(in, out, bufferSize);
         }
 
+        /**
+         * @brief Copy one character at a time until input or output fails.
+         * @see copy_unbuffered
+         * @note Does not flush output; stream exception masks and allocation exceptions still apply.
+         * @param in Input stream, starting at its current position.
+         * @param out Destination to append bytes to; existing contents are preserved.
+         * @return The number of bytes successfully transferred.
+         */
         static std::streamsize copy_stream_unbuffered(std::istream& in, std::ostream& out) {
             return copy_unbuffered(in, out);
         }

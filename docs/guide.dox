@@ -1,0 +1,334 @@
+/**
+@mainpage bstream: binary I/O in C++20
+
+bstream is a header-only library for typed binary reads and writes, memory-backed
+standard streams, endian conversion, and bit fields. Include
+`<bstream/bstream.hh>` for the complete API or an individual component header.
+Byte readers and writers default to little endian. Bit readers and writers
+default to most-significant-bit first; byte order and bit order are independent.
+
+@section start Quick start
+This example writes into caller-owned storage and reads the serialized bytes.
+`require()` in the examples checks a condition and throws if it is false.
+@snippet usage.cc span_roundtrip
+
+@section choose Choose an interface
+| Task | Interface |
+|------|-----------|
+| Read existing contiguous memory | bstream::span_reader |
+| Write into a fixed buffer | bstream::span_writer |
+| Read/write standard streams or binary files | bstream::stream_reader, bstream::stream_writer |
+| Pack/unpack bit fields in memory | bstream::bit_writer, bstream::bit_reader |
+| Pack/unpack bit fields on standard streams | bstream::bit_stream_writer, bstream::bit_stream_reader |
+| Present memory as a standard stream | bstream::span_istream, bstream::span_ostream |
+| Mirror input or broadcast output | bstream::tee_input_stream, bstream::tee_output_stream |
+| Copy a stream to another destination | bstream::stream_copier |
+| Convert scalar or array byte order | bstream::byte_order and the free functions in byte_order.hh |
+
+@section contents Guides
+- @ref setup
+- @ref serialization
+- @ref bit_guide
+- @ref stream_adapters
+- @ref error_guide
+- @ref usage_source
+
+@section lifetime Ownership and concurrency
+Span readers, span writers, memory streams, and their returned views borrow
+storage. Keep the storage alive and at a stable address for every operation and
+for the lifetime of each returned view. Resizing a backing vector can invalidate
+those views. A reader constructed from a temporary container immediately risks
+dangling storage. Returned strings and vectors own their decoded data.
+
+Stream wrappers borrow their streams; they do not open, close, or own files.
+Open file streams with `std::ios::binary` to avoid platform text translation.
+The bit_writer constructor taking only a bit_order owns its output vector;
+its other constructors borrow a vector, span, or span_writer. Tee streams also
+borrow every destination. Copying a span_reader or span_writer copies its cursor
+and byte order while sharing storage; copying a stream_reader or stream_writer
+shares the same underlying stream position. tee_stream_buf is neither copyable
+nor movable because its input cursors refer to its internal storage.
+Instances maintain mutable cursors and buffers and provide no synchronization.
+Use separate instances and storage, or synchronize access externally.
+
+@section format Format portability
+Prefer fixed-width integer types and an explicit byte order in file formats.
+Containers have no implicit element count, and aggregate padding is never
+serialized by PFR. Integral and enum values use their C++ object representation;
+endianness conversion does not normalize widths or `bool` between platforms.
+Floating-point serialization and endian conversion accept only IEEE 754
+binary32 and binary64 representations. Padded/extended and binary128
+`long double` representations are rejected at compile time: returning reversed
+bytes as a floating-point value can lose data. A binary64 `long double`, as on
+MSVC, is supported. Use raw byte I/O and an explicit format for other representations.
+Only feed valid representations to
+typed reads. The implementation assumes native scalar order is little or big
+endian, and does not support a mixed-endian native representation.
+*/
+
+/** @page setup Building, configuration, and documentation
+@section cmake_setup CMake consumer
+Link `neutrino::bstream` after adding this repository with `add_subdirectory` or
+`FetchContent_MakeAvailable`. The interface target requests C++20 and propagates
+the enabled dependencies. GCC, Clang, MSVC, and clang-cl are covered by the
+compiler CI configuration; Windows jobs use Visual Studio 2022.
+
+An installed package exposes the same target through
+`find_package(bstream 0.1 CONFIG REQUIRED)`. Enable `NEUTRINO_BSTREAM_INSTALL`,
+then run `cmake --install build --prefix /path/to/prefix`. Headers and CMake
+package files follow `CMAKE_INSTALL_INCLUDEDIR` and `CMAKE_INSTALL_LIBDIR`;
+the prefix can be relocated. Set `CMAKE_PREFIX_PATH` in consumers to locate it.
+The package preserves its configured optional features. Enabled dependencies
+must be available as installed `failsafe` and Boost 1.83+ (`pfr` component)
+packages, or as existing `neutrino::failsafe` and `Boost::pfr` targets. To install
+without those requirements, configure both `BSTREAM_WITH_FAILSAFE` and
+`BSTREAM_WITH_BOOST_PFR` to `OFF`. bstream does not bundle dependency headers.
+
+| Option | Default | Effect |
+|--------|---------|--------|
+| `BSTREAM_WITH_BOOST_PFR` | `ON` | Fetch/link Boost.PFR for supported aggregates |
+| `BSTREAM_WITH_FAILSAFE` | `ON` | Fetch/link failsafe for expected-result APIs |
+| `NEUTRINO_BSTREAM_BUILD_DOCS` | `OFF` | Enable the `bstream_docs` target; requires Doxygen 1.9.8+ |
+| `NEUTRINO_BSTREAM_BUILD_EXAMPLES` | Top-level native build: `ON` | Build `bstream_usage_examples` independently of the tests |
+| `NEUTRINO_BSTREAM_BUILD_TESTS` | Top-level native build: `ON` | Build tests, standalone header checks, and usage examples |
+| `NEUTRINO_BSTREAM_INSTALL` | Top-level build: `ON` | Install headers and the relocatable `neutrino::bstream` CMake target |
+| `NEUTRINO_WARNINGS_AS_ERRORS` | `ON` | Treat enabled warnings in project verification targets as errors |
+
+For direct header inclusion, add `include/` to the compiler include path and
+enable C++20. Boost.PFR and failsafe are detected from available headers.
+Defining `BSTREAM_WITH_BOOST_PFR=0` disables reflection even if Boost is present.
+`BSTREAM_HAS_PFR` and `BSTREAM_HAS_FAILSAFE` indicate the APIs that were detected;
+do not define these detection macros yourself. Disabling the failsafe CMake
+option stops fetching/linking it, but an otherwise visible failsafe installation
+can still be detected by the headers. Use consistent configuration across
+translation units.
+
+Every public header includes the internal Windows configuration header. It
+defines `NOMINMAX` on Windows and removes existing `min`/`max` macros, including
+when Windows headers were included first. No project-wide define is needed.
+
+@section build_docs Generate this reference
+@code{.sh}
+cmake -S . -B build-docs -DNEUTRINO_BSTREAM_BUILD_DOCS=ON
+cmake --build build-docs --target bstream_docs
+@endcode
+Open `build-docs/docs/reference/html/index.html`. XML is generated alongside
+the HTML for tooling. Missing public documentation, malformed commands,
+unresolved links, and incomplete parameter documentation fail the docs build.
+Internal `bstream::detail` implementation types are excluded from the reference.
+
+@section run_examples Compile and run the examples
+@code{.sh}
+cmake -S . -B build-examples -DNEUTRINO_BSTREAM_BUILD_EXAMPLES=ON
+cmake --build build-examples --config Release --target bstream_usage_examples
+@endcode
+Run `build-examples/bin/bstream_usage_examples` for a single-configuration
+generator, or `build-examples/bin/Release/bstream_usage_examples.exe` with Visual
+Studio. When tests are enabled, CTest runs the examples too. Optional examples
+are compiled only when their dependency is available. The reference always
+shows the optional APIs and states their availability.
+*/
+
+/** @page serialization Byte streams and serialization
+@section memory_parsing Bounded parsing and zero-copy slices
+span_reader checks available bytes before each raw read, skip, and slice.
+read_span() and subreader() advance the parent cursor and borrow the same
+storage; subreader() inherits the parent's byte order and has its own cursor.
+@snippet usage.cc slicing
+
+@section stream_serialization Standard streams and containers
+@snippet usage.cc streams
+Vectors and arrays serialize elements in order, without a length prefix.
+`reader >> vector` fills its existing size and never resizes it;
+`read_vector<T>(count)` allocates the requested element count. Scalar containers
+are read in bulk and converted through byte_order.hh. `std::vector<bool>` is not
+a contiguous scalar buffer and is not supported by the bulk reader overloads.
+Validate externally supplied lengths before allocating containers or strings.
+Reading a non-scalar container requires a matching extraction operator for
+its elements (or supported aggregate reflection).
+
+@section string_formats String formats
+| Writer / reader | Encoding |
+|-----------------|----------|
+| `write_cstring` / `read_cstring` | String bytes followed by a zero byte; embedded zeros terminate reading |
+| `write_fixed_string` / `read_fixed_string` | Exactly the specified width; writer truncates or pads; reader consumes the whole width |
+| `write_pascal_string<LenType>` / `read_pascal_string<LenType>` | Length in the configured byte order, then that many string bytes |
+
+Fixed-string reading defaults to returning bytes before the first zero; pass
+`false` for `strip_nulls` to preserve all bytes. Pascal prefixes default to
+`uint8_t` on both readers and writers. Use matching unsigned integral prefix
+types, such as `uint16_t`, for longer strings. Writers reject an unrepresentable
+length with parse_error before emitting the prefix. Readers do not validate
+negative signed prefixes; select an unsigned prefix for binary formats.
+Strings carry bytes without encoding conversion.
+
+@section endian_usage Byte order
+@snippet usage.cc byte_order
+Both byte readers use byte_order.hh for scalar and batch conversion. A per-call
+`read<T, Endian>()` or `write<T, Endian>()` temporarily overrides the configured
+order for all nested fields and restores it on return or exception.
+
+@section reflected_records Aggregate records (optional Boost.PFR)
+@snippet usage.cc aggregates
+Supported aggregates are serialized field by field in declaration order;
+the wire size is the sum of the serialized fields, not `sizeof(record)`.
+PFR eligibility is determined by the adapter and Boost.PFR's supported aggregate
+forms. This is not raw-memory serialization of arbitrary C++ objects.
+`read<T>()` decodes field values before constructing the record, allowing const
+value members, including nested records. Extracting into an existing record
+with `operator>>` still requires it to be assignable. Reference members are not
+supported by automatic aggregate deserialization.
+
+@section custom_records Custom operators
+Use matching extraction/insertion operators for a non-scalar type that is not
+selected for PFR reflection. This non-aggregate example works with PFR on or off.
+@snippet usage.cc custom_type
+@snippet usage.cc custom_records
+Custom operators must consume/produce the intended fields and propagate errors.
+A read constructs `T{}` before invoking custom extraction, so that path requires
+a default-constructible type. Aggregate reflection takes precedence over custom
+operators when `read<T>()` / `write<T>()` selects a reflectable aggregate.
+*/
+
+/** @page bit_guide Bit fields
+@section packed_memory Packing and parsing
+@snippet usage.cc bits
+Counts from 0 through 64 are accepted at any bit offset. A zero-bit read or peek
+returns zero, and a zero-bit write is a no-op. Reads return a right-aligned value;
+writes use only the low `count` bits of their input.
+
+With `msb_first`, the next physical bit is the high remaining bit of the byte
+and the first bit becomes the high bit of the requested field. With `lsb_first`,
+the next physical bit is the low remaining bit and the first bit becomes bit 0
+of the result. Bit order does not inherit a byte reader/writer's endian setting.
+
+@section bit_alignment Peeking, alignment, and state
+Peeking can fetch underlying bytes but does not consume logical bits. Alignment
+discards only the rest of the current input byte, retaining prefetched whole
+bytes. On output, it emits the pending byte with zero padding by default;
+any nonzero `pad_bit` requests one bits. Change bit order only at a byte boundary,
+or set the already active order; another change throws bstream_error.
+
+`bytes_remaining()` on bit_reader counts bytes not yet fetched, whereas
+`total_bits_remaining()` also counts buffered bits. Output counters count
+accepted payload bits and successful byte writes, excluding alignment padding.
+bit_stream_writer's bulk write_bytes() updates its counter only if the entire
+bulk write succeeds; a failed underlying stream can still have emitted a prefix.
+
+@section streaming_bits Bit fields on standard streams
+@snippet usage.cc bit_streams
+Do not interleave direct stream reads with a bit reader that holds buffered
+bytes. Likewise, flush a bit writer before bypassing it to write directly.
+Input has no automatic way to distinguish payload bits from final-byte padding;
+the format must supply a field count or length.
+
+The owning bit_writer returns its vector through finish(). Other modes borrow
+their destination: inspect data() after flush(), or access that destination.
+data() excludes the pending partial byte and includes any pre-existing bytes
+in an external vector or span_writer. Treat finish() as the end of an owning
+writer's session. Destructors attempt a flush but suppress failures; call
+flush() or finish() explicitly when delivery must be checked.
+Moving a bit_writer preserves its destination and pending bits in the new owner.
+The source exposes an empty data() view and zero counters; it can be destroyed
+or assigned a new writer.
+*/
+
+/** @page stream_adapters Memory streams, tee streams, and copying
+@section memory_adapters Fixed memory through standard streams
+@snippet usage.cc memory_streams
+Memory streams never grow their backing storage. Writes beyond capacity set
+stream failure state (or throw according to the standard stream exception
+mask). Seeking is bounded by the entire buffer capacity. `chars_written()` and
+the written views reflect the current put position, not a historical high-water
+mark: seeking backward shortens those views. reset() rewinds and clears stream
+flags without erasing bytes. Empty buffers support tell/seek at position zero;
+nonzero seeks and unavailable input/output modes still fail. Read-only buffers
+reject a putback character that differs from the character previously read.
+span_streambuf move operations preserve separate
+read/write positions and leave the source with no usable storage.
+
+@section tee_adapters Broadcasting and mirroring
+@snippet usage.cc tee_output
+@snippet usage.cc tee_input
+An output tee forwards bytes to registered destinations in order. A destination
+failure is reported through the tee's stream state; bytes accepted by earlier
+destinations are not rolled back. An exception from a destination can stop
+delivery to later destinations. An output tee with no destinations is a sink.
+
+An input tee reads and mirrors chunks of up to 4096 bytes. A peek or one-byte
+read can therefore advance the underlying stream and audit outputs by an entire
+chunk before the caller consumes it. Adding a mirror later does not replay
+already fetched bytes. Flush destinations explicitly when required.
+
+@section copy_helpers Copy semantics
+stream_copier starts at the current input position. String/vector destinations
+are appended to, never cleared. The default scratch buffer is 8192 bytes on the
+stack; larger requested chunks allocate heap storage. A zero chunk copies zero
+bytes. Buffered output-copy failures throw bstream_error, while ordinary input
+EOF/failure stops copying; inspect the input stream to distinguish failures from
+EOF. copy_unbuffered() stops on either stream's failure and returns the number
+of successfully transferred bytes. Standard stream exception masks still apply.
+No copy helper flushes the output destination.
+*/
+
+/** @page error_guide Errors and recovery
+@section exceptions Exceptions
+bstream_error derives from `std::runtime_error`. eof_error reports bounded
+buffer exhaustion or insufficient input; parse_error reports a rejected format
+value such as a Pascal length that cannot fit its prefix. Other stream-write,
+flush, and bit-count/order failures use bstream_error.
+@snippet usage.cc errors
+
+A failed bounded scalar/raw span read leaves its cursor unchanged. A streaming
+read can consume a prefix before failing. Compound operations (records,
+containers, strings, and writes) are not transactions: earlier fields or bytes
+may have been committed when a later step fails. A failed span Pascal read can
+already have consumed its length prefix. Bit refills can fetch bytes before an
+EOF exception without consuming the requested logical field. Failed bit output
+retains valid pending state, but replaying a whole failed write can duplicate a
+prefix that was already accepted. There is no universal rollback guarantee.
+
+Underlying standard streams can throw `std::ios_base::failure` according to their
+exception masks; allocation and user-defined operator exceptions can propagate
+as well. `seek()` on stream_reader/stream_writer clears stream flags before
+seeking; `skip()` does not. Stream peeking requires a seekable input and only
+restores position after a successful read and successful seek. Stream `tell()`
+returns zero when position lookup fails, which is indistinguishable from offset
+zero without checking the underlying stream state.
+
+@section expected_results Expected results (optional failsafe)
+When `BSTREAM_HAS_FAILSAFE` is defined, byte readers expose `try_read<T>()`, and
+bit_stream_reader exposes `try_read_bit()` and `try_read_bits()`.
+@snippet usage.cc expected
+These wrappers return bstream::expected with the caught `std::exception` message
+as a string on failure. They retain the underlying read's partial-progress
+semantics. The wrappers are `noexcept`: a non-standard exception, or allocation
+failure while constructing the error result, terminates rather than returning
+an error. They are not a general exception barrier for arbitrary custom code.
+*/
+
+/** @defgroup span_io Bounded memory readers and writers
+ * @brief Typed binary I/O over caller-owned contiguous memory.
+ */
+/** @defgroup stream_io Standard stream readers and writers
+ * @brief Binary serialization over borrowed standard C++ streams.
+ */
+/** @defgroup bit_io Bit readers and writers
+ * @brief Fields of 0 to 64 bits with explicit bit order and alignment.
+ */
+/** @defgroup byte_order_api Byte order and scalar types
+ * @brief Shared endian conversion primitives and compatibility helpers.
+ */
+/** @defgroup adapters Stream adapters and copying
+ * @brief Memory streams, tee streams, and transfer utilities.
+ */
+/** @defgroup errors_api Errors and optional results
+ * @brief Exceptions and optional failsafe expected aliases.
+ */
+/** @namespace bstream
+ * @brief Public binary serialization API; implementation helpers live in detail.
+ */
+/** @example usage.cc
+ * @anchor usage_source
+ * Complete, executable source for every short example in this reference.
+ */

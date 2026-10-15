@@ -93,6 +93,7 @@ TEST_SUITE("stream_writer") {
         CHECK(reader.read<uint32_t>() == 0x12345678U);
     }
 
+#if defined(BSTREAM_HAS_PFR)
     TEST_CASE("write aggregate struct via PFR reflection") {
         std::stringstream ss;
         bstream::stream_writer writer(ss, bstream::endian::little);
@@ -107,6 +108,7 @@ TEST_SUITE("stream_writer") {
         CHECK(p2.score == p1.score);
         CHECK(p2.lives == p1.lives);
     }
+#endif
 
     TEST_CASE("write seek, tell, skip") {
         std::stringstream ss;
