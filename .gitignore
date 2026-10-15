@@ -1,0 +1,11 @@
+build/
+build-*/
+cmake-build-*/
+.cache/
+.idea/
+.vscode/
+*.swp
+*.o
+*.a
+*.so
+compile_commands.json
