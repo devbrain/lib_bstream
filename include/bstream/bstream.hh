@@ -6,4 +6,5 @@
 #include <bstream/span_reader.hh>
 #include <bstream/stream_reader.hh>
 #include <bstream/bit_reader.hh>
+#include <bstream/bit_stream_reader.hh>
 #include <bstream/span_writer.hh>

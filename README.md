@@ -10,10 +10,12 @@ A modern C++20 zero-copy binary streaming, parsing, and bit-manipulation library
   - Sub-span slicing (`read_span()`, `subreader()`) for partitioned files/containers.
 - **Stream I/O (`stream_reader`)**:
   - Sequential reads from any `std::istream&`.
-- **Bit-Level Streaming (`bit_reader`)**:
-  - Read 1 to 64 bits at a time.
+- **Bit-Level Streaming (`bit_reader` & `bit_stream_reader`)**:
+  - `bit_reader` / `bit_span_reader`: In-memory zero-copy bit extraction from spans.
+  - `bit_stream_reader`: Sequential bit-by-bit reading directly from `std::istream&` or `stream_reader`.
+  - Read 1 to 64 bits at a time (`read_bits(N)`, `read_bit()`).
   - Configurable `bit_order::msb_first` (Huffman, Deflate, Amiga) or `bit_order::lsb_first` (LZSS variants).
-  - Byte-boundary alignment and peeking.
+  - Byte-boundary alignment (`align_to_byte()`) and bit peeking (`peek_bits(N)`).
 - **Endianness Engine**:
   - Native, little-endian, and big-endian support via `std::endian`.
   - Single-cycle hardware byte swapping via compiler intrinsics.
