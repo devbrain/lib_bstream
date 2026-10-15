@@ -34,7 +34,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Configure
         # Keep platform defaults such as MSVC/clang-cl's /EHsc exception support.
         run: >-
@@ -55,7 +55,7 @@ jobs:
     name: Doxygen reference
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install Doxygen
         run: |
           sudo apt-get update
@@ -70,7 +70,7 @@ jobs:
           -DBSTREAM_WITH_FAILSAFE=OFF
       - name: Generate documentation with warnings as errors
         run: cmake --build build-docs --target bstream_docs
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: bstream-documentation
           path: build-docs/docs/reference/

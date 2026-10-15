@@ -10,6 +10,7 @@
 #include <bstream/detail/platform.hh>
 
 #include <bstream/types.hh>
+#include <array>
 #include <type_traits>
 #include <utility>
 
@@ -22,13 +23,22 @@
 namespace bstream::detail {
 
 #if defined(BSTREAM_HAS_PFR)
+    template<typename T>
+    inline constexpr bool is_std_array_v = false;
+
+    template<typename T, std::size_t N>
+    inline constexpr bool is_std_array_v<std::array<T, N>> = true;
+
     template<typename T, typename = void>
     struct is_pfr_reflectable : std::false_type {};
 
     template<typename T>
     struct is_pfr_reflectable<T, std::enable_if_t<
         std::is_aggregate_v<T> && 
-        !std::is_array_v<T> && 
+        !std::is_array_v<T> &&
+        // std::array uses the container operators; its implementation layout
+        // need not match the element count that PFR reflects on every compiler.
+        !is_std_array_v<std::remove_cv_t<T>> &&
         !scalar_type<T>
     >> : std::bool_constant<(boost::pfr::tuple_size_v<T> > 0)> {};
 

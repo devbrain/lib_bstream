@@ -12,6 +12,37 @@
 
 TEST_SUITE("memory_stream") {
 
+    TEST_CASE("Span buffer constructors preserve span extents and input/output modes") {
+        char storage[] = {'a', 'b', 'c'};
+        const char input[] = {'x', 'y', 'z'};
+
+        bstream::span_streambuf fixed{std::span<char, 3>(storage)};
+        CHECK(fixed.span().size() == 3);
+        CHECK(fixed.sgetc() == 'a');
+        CHECK(fixed.sputc('A') == 'A');
+        CHECK(storage[0] == 'A');
+
+        bstream::span_streambuf dynamic{std::span<char>(storage)};
+        CHECK(dynamic.span().size() == 3);
+        CHECK(dynamic.sgetc() == 'A');
+        CHECK(dynamic.sputc('B') == 'B');
+
+        bstream::span_streambuf fixed_input{std::span<const char, 3>(input)};
+        CHECK(fixed_input.span().size() == 3);
+        CHECK(fixed_input.sgetc() == 'x');
+        CHECK(fixed_input.sputc('!') == std::char_traits<char>::eof());
+
+        bstream::span_streambuf dynamic_input{std::span<const char>(input), std::ios::in};
+        CHECK(dynamic_input.span().size() == 3);
+        CHECK(dynamic_input.sgetc() == 'x');
+        CHECK(dynamic_input.sputc('!') == std::char_traits<char>::eof());
+
+        bstream::span_streambuf output{std::span<char, 3>(storage), std::ios::out};
+        CHECK(output.sgetc() == std::char_traits<char>::eof());
+        CHECK(output.sputc('C') == 'C');
+        CHECK(storage[0] == 'C');
+    }
+
     TEST_CASE("Read-only putback rejects a different character without rewinding") {
         bstream::span_istream input("abc", 3);
         CHECK(input.get() == 'a');

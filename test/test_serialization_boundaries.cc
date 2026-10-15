@@ -5,6 +5,41 @@
 #include <sstream>
 #include <string_view>
 
+TEST_CASE("Generic array serialization uses container elements with either PFR configuration") {
+    using Values = std::array<std::array<uint16_t, 2>, 2>;
+    using Empty = std::array<uint16_t, 0>;
+    const Values expected{{{0x1234, 0x5678}, {0x9abc, 0xdef0}}};
+    for (const auto order : {bstream::endian::little, bstream::endian::big}) {
+        const std::array<uint8_t, 8> wire = order == bstream::endian::little
+            ? std::array<uint8_t, 8>{0x34, 0x12, 0x78, 0x56, 0xbc, 0x9a, 0xf0, 0xde}
+            : std::array<uint8_t, 8>{0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0};
+        std::array<uint8_t, 8> output{};
+        bstream::span_writer writer(output, order);
+        writer.write(Empty{});
+        writer.write(expected);
+        CHECK(output == wire);
+        CHECK(writer.tell() == wire.size());
+
+        bstream::span_reader reader(wire, order);
+        CHECK(reader.read<Empty>().empty());
+        CHECK(reader.read<Values>() == expected);
+        CHECK(reader.eof());
+
+        const std::string wire_string(reinterpret_cast<const char*>(wire.data()), wire.size());
+        std::ostringstream stream;
+        bstream::stream_writer stream_writer(stream, order);
+        stream_writer.write(Empty{});
+        stream_writer.write(expected);
+        CHECK(stream.str() == wire_string);
+
+        std::istringstream input(wire_string);
+        bstream::stream_reader stream_reader(input, order);
+        CHECK(stream_reader.read<Empty>().empty());
+        CHECK(stream_reader.read<Values>() == expected);
+        CHECK(stream_reader.tell() == wire.size());
+    }
+}
+
 TEST_CASE("Empty string fields handle null-backed views without accessing memory") {
     bstream::span_writer empty_writer;
     CHECK_NOTHROW(empty_writer.write_fixed_string(std::string_view{}, 0));

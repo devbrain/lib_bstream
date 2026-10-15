@@ -92,22 +92,28 @@ namespace bstream {
             init_pointers();
         }
 
+        // Deduce spans so (array, length) cannot select (span, mode) on platforms
+        // where openmode is an integer type.
         /**
          * @brief Borrow the supplied range and initialize the enabled cursors at its beginning.
          * @pre Borrowed storage and streams outlive this object and all derived views.
+         * @tparam Extent Static span extent or std::dynamic_extent.
          * @param s Borrowed backing range; must remain alive and stable. Output requires mutable storage.
          * @param mode Input/output areas to enable; const storage must not enable output.
          */
-        explicit span_streambuf(std::span<const char> s, std::ios_base::openmode mode = std::ios_base::in) noexcept
+        template<std::size_t Extent>
+        explicit span_streambuf(std::span<const char, Extent> s, std::ios_base::openmode mode = std::ios_base::in) noexcept
             : span_streambuf(s.data(), s.size(), mode) {}
 
         /**
          * @brief Borrow the supplied range and initialize the enabled cursors at its beginning.
          * @pre Borrowed storage and streams outlive this object and all derived views.
+         * @tparam Extent Static span extent or std::dynamic_extent.
          * @param s Borrowed backing range; must remain alive and stable. Output requires mutable storage.
          * @param mode Input/output areas to enable; const storage must not enable output.
          */
-        explicit span_streambuf(std::span<char> s, std::ios_base::openmode mode = std::ios_base::in | std::ios_base::out) noexcept
+        template<std::size_t Extent>
+        explicit span_streambuf(std::span<char, Extent> s, std::ios_base::openmode mode = std::ios_base::in | std::ios_base::out) noexcept
             : span_streambuf(s.data(), s.size(), mode) {}
 
         /**
